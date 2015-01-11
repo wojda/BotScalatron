@@ -15,13 +15,13 @@
   *  - target = remaining offset to target location
   */
 object ControlFunction {
+
   def forMaster(bot: Bot) {
     val directionValue = analyzeViewAsMaster(bot.view)
 
-    val lastDirection = bot.inputAsIntOrElse("lastDirection", 0)
-
     // determine movement direction
-    directionValue(lastDirection) += 10 // try to break ties by favoring the last direction
+    directionValue(bot.lastDirection) += 10 // try to break ties by favoring the last direction
+
     val bestDirection45 = directionValue.zipWithIndex.maxBy(_._1)._2
     val direction = XY.fromDirection45(bestDirection45)
     bot.move(direction)
@@ -34,7 +34,7 @@ object ControlFunction {
   }
 
 
-  def forSlave(bot: BotImpl) {
+  def forSlave(bot: MiniBot) {
     val (directionValue, nearestEnemyMaster, nearestEnemySlave) = analyzeViewAsMiniBot(bot.view)
 
     if(bot.energy > 300) bot.spawn(XY.Up)
@@ -50,8 +50,7 @@ object ControlFunction {
     } else {
 
       // determine movement direction
-      val lastDirection = bot.inputAsIntOrElse("lastDirection", 0)
-      directionValue(lastDirection) += 10 // try to break ties by favoring the last direction
+      directionValue(bot.lastDirection) += 10 // try to break ties by favoring the last direction
       val bestDirection45 = directionValue.zipWithIndex.maxBy(_._1)._2
       val direction = XY.fromDirection45(bestDirection45)
       bot.move(direction)
@@ -175,18 +174,19 @@ object ControlFunction {
 // -------------------------------------------------------------------------------------------------
 
 class ControlFunctionFactory {
+
   def create = (input: String) => {
-    val (opcode, params) = CommandParser(input)
-    opcode match {
-      case "React" =>
-        val bot = new BotImpl(params)
-        if( bot.generation == 0 ) {
-          ControlFunction.forMaster(bot)
-        } else {
-          ControlFunction.forSlave(bot)
-        }
+    CommandParser(input) match {
+
+      case Some(command) =>
+        val bot = new BotImpl(command);
+        if(command.isForMasterBot) ControlFunction.forMaster(bot)
+        else ControlFunction.forSlave(bot)
         bot.toString
-      case _ => "" // OK
+
+      case None =>
+        "" //do nothing
+        
     }
   }
 }
@@ -197,13 +197,11 @@ class ControlFunctionFactory {
 
 trait Bot {
   // inputs
-  def inputOrElse(key: String, fallback: String): String
-  def inputAsIntOrElse(key: String, fallback: Int): Int
-  def inputAsXYOrElse(keyPrefix: String, fallback: XY): XY
   def view: View
   def energy: Int
   def time: Int
   def generation: Int
+  def lastDirection: Int
 
   // outputs
   def move(delta: XY) : Bot
@@ -223,17 +221,14 @@ trait MiniBot extends Bot {
 }
 
 
-case class BotImpl(inputParams: Map[String, String]) extends MiniBot {
+case class BotImpl(command: CommandFromServer) extends MiniBot {
   // input
-  def inputOrElse(key: String, fallback: String) = inputParams.getOrElse(key, fallback)
-  def inputAsIntOrElse(key: String, fallback: Int) = inputParams.get(key).map(_.toInt).getOrElse(fallback)
-  def inputAsXYOrElse(key: String, fallback: XY) = inputParams.get(key).map(s => XY(s)).getOrElse(fallback)
-
-  val view = View(inputParams("view"))
-  val energy = inputParams("energy").toInt
-  val time = inputParams("time").toInt
-  val generation = inputParams("generation").toInt
-  def offsetToMaster = inputAsXYOrElse("master", XY.Zero)
+  val view = command.view
+  val energy = command.energy
+  val time = command.time
+  val generation = command.generation
+  def offsetToMaster = command.offsetToMaster.getOrElse(XY.Zero)
+  val lastDirection = command.lastDirection
 
 
   // output
@@ -278,23 +273,37 @@ case class BotImpl(inputParams: Map[String, String]) extends MiniBot {
 
 /** Utility methods for parsing strings containing a single command of the format
   * "Command(key=value,key=value,...)"
+  *
+  * It parses only React command.
   */
 object CommandParser {
-  /** "Command(..)" => ("Command", Map( ("key" -> "value"), ("key" -> "value"), ..}) */
-  def apply(command: String): (String, Map[String, String]) = {
-    /** "key=value" => ("key","value") */
-    def splitParameterIntoKeyValue(param: String): (String, String) = {
+
+  def apply(command: String): Option[CommandFromServer] = {
+    val segments = command.split('(')
+
+    if (segments.length != 2) throw new IllegalStateException("invalid command: " + command)
+
+    if (segments(0) != "React") return Option.empty
+
+    def splitParam(param: String) = {
       val segments = param.split('=')
-      (segments(0), if(segments.length>=2) segments(1) else "")
+      if (segments.length != 2)
+        throw new IllegalStateException("invalid key/value pair: " + param)
+      (segments(0), segments(1))
     }
 
-    val segments = command.split('(')
-    if( segments.length != 2 )
-      throw new IllegalStateException("invalid command: " + command)
-    val opcode = segments(0)
-    val params = segments(1).dropRight(1).split(',')
-    val keyValuePairs = params.map(splitParameterIntoKeyValue).toMap
-    (opcode, keyValuePairs)
+    val params = segments(1).dropRight(1).split(',').map(splitParam).toMap
+
+
+    Option(new CommandFromServer(
+      params("generation").toInt,
+      params("name"),
+      params("time").toInt,
+      params("view"),
+      params("energy").toInt,
+      params get "master",
+      params get "collision",
+      params get "lastDirection"))
   }
 }
 
@@ -423,6 +432,14 @@ object XY {
   }
 
   def apply(array: Array[Int]): XY = XY(array(0), array(1))
+
+
+  def option(s: Option[String]): Option[XY] = {
+    s match {
+      case Some(direction) => Option(apply(direction))
+      case None => Option.empty
+    }
+  }
 }
 
 
@@ -494,5 +511,23 @@ case class View(cells: String) {
   def offsetToNearest(cell: Cell.CellSymbol): Option[XY] = {
     offsetToNearest(cell.symbol)
   }
+}
+
+
+class CommandFromServer(val generation: Int,
+                        val name: String,
+                        val time: Int,
+                        viewAsCharsSquareRegion: String,
+                        val energy: Int,
+                        master: Option[String],
+                        collision: Option[String],
+                         lastDir: Option[String]) {
+
+  val offsetToMaster = XY.option(master)
+  val collisionDirection = XY.option(collision)
+  val view = View(viewAsCharsSquareRegion)
+  val lastDirection = lastDir.map(_.toInt).getOrElse(0)
+
+  def isForMasterBot: Boolean = generation == 0
 }
 
