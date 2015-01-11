@@ -1,35 +1,7 @@
 // Example Bot #1: The Reference Bot
 
 
-/** This bot builds a 'direction value map' that assigns an attractiveness score to
-  * each of the eight available 45-degree directions. Additional behaviors:
-  * - aggressive missiles: approach an enemy master, then explode
-  * - defensive missiles: approach an enemy slave and annihilate it
-  *
-  * The master bot uses the following state parameters:
-  *  - dontFireAggressiveMissileUntil
-  *  - dontFireDefensiveMissileUntil
-  *  - lastDirection
-  * The mini-bots use the following state parameters:
-  *  - mood = Aggressive | Defensive | Lurking
-  *  - target = remaining offset to target location
-  */
-object ControlFunction {
-
-  def forMaster(commandFromServer: CommandFromServer): String = {
-    new MasterBot().react(commandFromServer)
-  }
-
-
-  def forSlave(commandFromServer: CommandFromServer): String = {
-    new MiniBot().react(commandFromServer)
-
-  }
-
-}
-
-
-class MiniBot {
+class MiniBot extends Bot{
 
   def react(command: CommandFromServer): String = {
     val botAction = new BotActionActionImpl(command)
@@ -112,7 +84,7 @@ class MiniBot {
 }
 
 
-class MasterBot {
+class MasterBot extends Bot{
 
   def react(command: CommandFromServer): String = {
     val botAction = new BotActionActionImpl(command)
@@ -201,8 +173,8 @@ class ControlFunctionFactory {
     CommandParser(input) match {
 
       case Some(command) =>
-        if(command.isForMasterBot) ControlFunction.forMaster(command)
-        else ControlFunction.forSlave(command)
+        val bot = BotFactory(command)
+        bot.react(command)
       case None =>
         "" //do nothing
         
@@ -211,7 +183,19 @@ class ControlFunctionFactory {
 }
 
 
-// -------------------------------------------------------------------------------------------------
+
+object BotFactory {
+  def apply(command: CommandFromServer): Bot = {
+    if(command.isForMasterBot) new MasterBot
+    else new MiniBot
+  }
+}
+
+
+trait Bot {
+  def react(command: CommandFromServer): String
+}
+
 
 
 trait BotAction {
@@ -287,7 +271,6 @@ case class BotActionActionImpl(command: CommandFromServer) extends MiniBotAction
 }
 
 
-// -------------------------------------------------------------------------------------------------
 
 
 /** Utility methods for parsing strings containing a single command of the format
@@ -327,7 +310,6 @@ object CommandParser {
 }
 
 
-// -------------------------------------------------------------------------------------------------
 
 
 /** Utility class for managing 2D cell coordinates.
@@ -482,7 +464,6 @@ object Direction90 {
 }
 
 
-//=================================================================================================
 object Cell extends Enumeration {
 
   case class CellSymbol(symbol: Char)
@@ -499,7 +480,6 @@ object Cell extends Enumeration {
   val WITH_PREDATOR_BEAST = CellSymbol('b')
 }
 
-// -------------------------------------------------------------------------------------------------
 
 case class View(cells: String) {
   val size = math.sqrt(cells.length).toInt
