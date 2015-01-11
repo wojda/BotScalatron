@@ -16,47 +16,46 @@
   */
 object ControlFunction {
 
-  def forMaster(bot: Bot) {
-    val directionValue = analyzeViewAsMaster(bot.view)
-
-    // determine movement direction
-    directionValue(bot.lastDirection) += 10 // try to break ties by favoring the last direction
-
-    val bestDirection45 = directionValue.zipWithIndex.maxBy(_._1)._2
-    val direction = XY.fromDirection45(bestDirection45)
-    bot.move(direction)
-    bot.set("lastDirection" -> bestDirection45)
-
-    if (bot.energy > 300) {
-      bot.spawn(direction.rotateClockwise45, "mood" -> "Aggressive")
-    }
-
+  def forMaster(commandFromServer: CommandFromServer): String = {
+    new MasterBot().react(commandFromServer)
   }
 
 
-  def forSlave(bot: MiniBot) {
-    val (directionValue, nearestEnemyMaster, nearestEnemySlave) = analyzeViewAsMiniBot(bot.view)
+  def forSlave(commandFromServer: CommandFromServer): String = {
+    new MiniBot().react(commandFromServer)
 
-    if(bot.energy > 300) bot.spawn(XY.Up)
+  }
+
+}
+
+
+class MiniBot {
+
+  def react(command: CommandFromServer): String = {
+    val botAction = new BotActionActionImpl(command)
+    val (directionValue, nearestEnemyMaster, nearestEnemySlave) = analyzeViewAsMiniBot(botAction.view)
+
+    if(botAction.energy > 300) botAction.spawn(XY.Up)
 
     if(nearestEnemyMaster.nonEmpty && nearestEnemyMaster.get < 8) {
-      if (nearestEnemyMaster.get <= 2) bot.explode(4)
-      else bot.move(bot.view.offsetToNearest(Cell.WITH_ENEMY_BOT).get.signum)
+      if (nearestEnemyMaster.get <= 2) botAction.explode(4)
+      else botAction.move(botAction.view.offsetToNearest(Cell.WITH_ENEMY_BOT).get.signum)
 
     } else if(nearestEnemySlave.nonEmpty && nearestEnemySlave.get <= 4) {
-      if (nearestEnemySlave.get <= 3) bot.explode(4)
-      else bot.move(bot.view.offsetToNearest(Cell.WITH_ENEMY_MINI_BOT).get.signum)
+      if (nearestEnemySlave.get <= 3) botAction.explode(4)
+      else botAction.move(botAction.view.offsetToNearest(Cell.WITH_ENEMY_MINI_BOT).get.signum)
 
     } else {
 
       // determine movement direction
-      directionValue(bot.lastDirection) += 10 // try to break ties by favoring the last direction
+      directionValue(botAction.lastDirection) += 10 // try to break ties by favoring the last direction
       val bestDirection45 = directionValue.zipWithIndex.maxBy(_._1)._2
       val direction = XY.fromDirection45(bestDirection45)
-      bot.move(direction)
-      bot.set("lastDirection" -> bestDirection45)
+      botAction.move(direction)
+      botAction.set("lastDirection" -> bestDirection45)
     }
 
+    botAction.toString
   }
 
 
@@ -110,13 +109,36 @@ object ControlFunction {
     }
     (directionValue, enemyMasterStepDistance, enemySlaveStepDistance)
   }
+}
 
+
+class MasterBot {
+
+  def react(command: CommandFromServer): String = {
+    val botAction = new BotActionActionImpl(command)
+
+    val directionValue = analyzeViewAsMaster(botAction.view)
+
+    // determine movement direction
+    directionValue(botAction.lastDirection) += 10 // try to break ties by favoring the last direction
+
+    val bestDirection45 = directionValue.zipWithIndex.maxBy(_._1)._2
+    val direction = XY.fromDirection45(bestDirection45)
+    botAction.move(direction)
+    botAction.set("lastDirection" -> bestDirection45)
+
+    if (botAction.energy > 300) {
+      botAction.spawn(direction.rotateClockwise45, "mood" -> "Aggressive")
+    }
+
+    botAction.toString
+  }
 
 
   /** Analyze the view, building a map of attractiveness for the 45-degree directions and
     * recording other relevant data, such as the nearest elements of various kinds.
     */
-  def analyzeViewAsMaster(view: View) = {
+  private def analyzeViewAsMaster(view: View) = {
     val directionValue = Array.ofDim[Double](8)
 
     val cells = view.cells
@@ -179,11 +201,8 @@ class ControlFunctionFactory {
     CommandParser(input) match {
 
       case Some(command) =>
-        val bot = new BotImpl(command);
-        if(command.isForMasterBot) ControlFunction.forMaster(bot)
-        else ControlFunction.forSlave(bot)
-        bot.toString
-
+        if(command.isForMasterBot) ControlFunction.forMaster(command)
+        else ControlFunction.forSlave(command)
       case None =>
         "" //do nothing
         
@@ -195,7 +214,7 @@ class ControlFunctionFactory {
 // -------------------------------------------------------------------------------------------------
 
 
-trait Bot {
+trait BotAction {
   // inputs
   def view: View
   def energy: Int
@@ -204,24 +223,24 @@ trait Bot {
   def lastDirection: Int
 
   // outputs
-  def move(delta: XY) : Bot
-  def say(text: String) : Bot
-  def status(text: String) : Bot
-  def spawn(offset: XY, params: (String,Any)*) : Bot
-  def set(params: (String,Any)*) : Bot
-  def log(text: String) : Bot
+  def move(delta: XY) : BotAction
+  def say(text: String) : BotAction
+  def status(text: String) : BotAction
+  def spawn(offset: XY, params: (String,Any)*) : BotAction
+  def set(params: (String,Any)*) : BotAction
+  def log(text: String) : BotAction
 }
 
-trait MiniBot extends Bot {
+trait MiniBotAction extends BotAction {
   // inputs
   def offsetToMaster: XY
 
   // outputs
-  def explode(blastRadius: Int) : Bot
+  def explode(blastRadius: Int) : BotAction
 }
 
 
-case class BotImpl(command: CommandFromServer) extends MiniBot {
+case class BotActionActionImpl(command: CommandFromServer) extends MiniBotAction {
   // input
   val view = command.view
   val energy = command.energy
@@ -238,7 +257,7 @@ case class BotImpl(command: CommandFromServer) extends MiniBot {
   private var debugOutput = ""                        // holds all "Log()" output
 
   /** Appends a new command to the command string; returns 'this' for fluent API. */
-  private def append(s: String) : Bot = { commands += (if(commands.isEmpty) s else "|" + s); this }
+  private def append(s: String) : BotAction = { commands += (if(commands.isEmpty) s else "|" + s); this }
 
   /** Renders commands and stateParams into a control function return string. */
   override def toString = {
