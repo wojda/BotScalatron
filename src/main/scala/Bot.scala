@@ -44,11 +44,11 @@ object ControlFunction {
 
     if(nearestEnemyMaster.nonEmpty && nearestEnemyMaster.get < 8) {
       if (nearestEnemyMaster.get <= 2) bot.explode(4)
-      else bot.move(bot.view.offsetToNearest('m').get.signum)
+      else bot.move(bot.view.offsetToNearest(Cell.WITH_ENEMY_BOT).get.signum)
 
     } else if(nearestEnemySlave.nonEmpty && nearestEnemySlave.get <= 4) {
       if (nearestEnemySlave.get <= 3) bot.explode(4)
-      else bot.move(bot.view.offsetToNearest('s').get.signum)
+      else bot.move(bot.view.offsetToNearest(Cell.WITH_ENEMY_MINI_BOT).get.signum)
 
     } else {
 
@@ -77,33 +77,33 @@ object ControlFunction {
       if (cellRelPos.isNonZero) {
         val stepDistance = cellRelPos.stepCount
         val value: Double = cells(i) match {
-          case 'm' => // another master:
+          case Cell.WITH_ENEMY_BOT.symbol =>
             enemyMasterStepDistance = Some(stepDistance)
             1000
-          case 's' => // another slave
+          case Cell.WITH_ENEMY_MINI_BOT.symbol =>
             enemySlaveStepDistance = Some(stepDistance)
             100 / stepDistance
 
-          case 'S' => // out own slave
+          case Cell.WITH_MY_MINI_BOT.symbol =>
             -50
 
-          case 'B' => // good beast: valuable, but runs away
+          case Cell.WITH_EDIBLE_BEAST.symbol =>
             if (stepDistance == 1) 600
             else if (stepDistance == 2) 300
             else (150 - stepDistance * 15).max(10)
 
-          case 'P' => // good plant: less valuable, but does not run
+          case Cell.WITH_EDIBLE_PLANT.symbol =>
             if (stepDistance == 1) 500
             else if (stepDistance == 2) 300
             else (150 - stepDistance * 10).max(10)
 
-          case 'b' => // bad beast: dangerous, but only if very close
+          case Cell.WITH_PREDATOR_BEAST.symbol =>
             if (stepDistance < 4) -400 / stepDistance else -50 / stepDistance
 
-          case 'p' => // bad plant: bad, but only if I step on it
+          case Cell.WITH_POISONOUS_PLANT.symbol =>
             if (stepDistance < 2) -1000 else 0
 
-          case 'W' => // wall: harmless, just don't walk into it
+          case Cell.WITH_WALL.symbol =>
             if (stepDistance < 2) -1000 else 0
 
           case _ => 0.0
@@ -132,34 +132,36 @@ object ControlFunction {
       if(cellRelPos.isNonZero) {
         val stepDistance = cellRelPos.stepCount
         val value: Double = cells(i) match {
-          case 'm' => // another master: not dangerous, but an obstacle
+
+          case Cell.WITH_ENEMY_BOT.symbol =>
             nearestEnemyMaster = Some(cellRelPos)
             if(stepDistance < 6) -1000 else 0
 
-          case 's' => // another slave: potentially dangerous?
+          case Cell.WITH_ENEMY_MINI_BOT.symbol =>
             nearestEnemySlave = Some(cellRelPos)
             -100 / stepDistance
 
-          case 'S' => // out own slave
+          case Cell.WITH_MY_MINI_BOT.symbol =>
             0.0
 
-          case 'B' => // good beast: valuable, but runs away
+          case Cell.WITH_EDIBLE_BEAST.symbol =>
             if(stepDistance == 1) 600
             else if(stepDistance == 2) 300
             else (150 - stepDistance * 15).max(10)
 
-          case 'P' => // good plant: less valuable, but does not run
+          case Cell.WITH_EDIBLE_PLANT.symbol =>
             if(stepDistance == 1) 500
             else if(stepDistance == 2) 300
             else (150 - stepDistance * 10).max(10)
 
-          case 'b' => // bad beast: dangerous, but only if very close
-            if(stepDistance < 4) -400 / stepDistance else -50 / stepDistance
+          case Cell.WITH_PREDATOR_BEAST.symbol =>
+            if(stepDistance < 4) -400 / stepDistance
+            else -50 / stepDistance
 
-          case 'p' => // bad plant: bad, but only if I step on it
+          case Cell.WITH_POISONOUS_PLANT.symbol =>
             if(stepDistance < 2) -1000 else 0
 
-          case 'W' => // wall: harmless, just don't walk into it
+          case Cell.WITH_WALL.symbol =>
             if(stepDistance < 2) -1000 else 0
 
           case _ => 0.0
@@ -450,6 +452,23 @@ object Direction90 {
 }
 
 
+//=================================================================================================
+object Cell extends Enumeration {
+
+  case class CellSymbol(symbol: Char)
+
+  val EMPTY = CellSymbol('_')
+  val WITH_WALL = CellSymbol('W')
+  val WITH_MY_BOT = CellSymbol('M')
+  val WITH_MY_MINI_BOT = CellSymbol('S')
+  val WITH_ENEMY_BOT = CellSymbol('m')
+  val WITH_ENEMY_MINI_BOT = CellSymbol('s')
+  val WITH_EDIBLE_PLANT = CellSymbol('P')
+  val WITH_EDIBLE_BEAST = CellSymbol('B')
+  val WITH_POISONOUS_PLANT = CellSymbol('p')
+  val WITH_PREDATOR_BEAST = CellSymbol('b')
+}
+
 // -------------------------------------------------------------------------------------------------
 
 case class View(cells: String) {
@@ -468,7 +487,7 @@ case class View(cells: String) {
   def relPosFromIndex(index: Int) = relPosFromAbsPos(absPosFromIndex(index))
   def cellAtRelPos(relPos: XY) = cells.charAt(indexFromRelPos(relPos))
 
-  def offsetToNearest(c: Char) = {
+  def offsetToNearest(c: Char): Option[XY] = {
     val matchingXY = cells.view.zipWithIndex.filter(_._1 == c)
     if( matchingXY.isEmpty )
       None
@@ -476,6 +495,10 @@ case class View(cells: String) {
       val nearest = matchingXY.map(p => relPosFromIndex(p._2)).minBy(_.length)
       Some(nearest)
     }
+  }
+
+  def offsetToNearest(cell: Cell.CellSymbol): Option[XY] = {
+    offsetToNearest(cell.symbol)
   }
 }
 
