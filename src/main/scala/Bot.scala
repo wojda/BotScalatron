@@ -16,10 +16,8 @@
   */
 object ControlFunction {
   def forMaster(bot: Bot) {
-    val (directionValue, nearestEnemyMaster, nearestEnemySlave) = analyzeViewAsMaster(bot.view)
+    val directionValue = analyzeViewAsMaster(bot.view)
 
-    val dontFireAggressiveMissileUntil = bot.inputAsIntOrElse("dontFireAggressiveMissileUntil", -1)
-    val dontFireDefensiveMissileUntil = bot.inputAsIntOrElse("dontFireDefensiveMissileUntil", -1)
     val lastDirection = bot.inputAsIntOrElse("lastDirection", 0)
 
     // determine movement direction
@@ -31,7 +29,6 @@ object ControlFunction {
 
     if (bot.energy > 300) {
       bot.spawn(direction.rotateClockwise45, "mood" -> "Aggressive")
-      //      bot.spawn(direction.rotateCounterClockwise45, "mood"->"Aggressive")
     }
 
   }
@@ -122,8 +119,6 @@ object ControlFunction {
     */
   def analyzeViewAsMaster(view: View) = {
     val directionValue = Array.ofDim[Double](8)
-    var nearestEnemyMaster: Option[XY] = None
-    var nearestEnemySlave: Option[XY] = None
 
     val cells = view.cells
     val cellCount = cells.length
@@ -134,11 +129,9 @@ object ControlFunction {
         val value: Double = cells(i) match {
 
           case Cell.WITH_ENEMY_BOT.symbol =>
-            nearestEnemyMaster = Some(cellRelPos)
             if(stepDistance < 6) -1000 else 0
 
           case Cell.WITH_ENEMY_MINI_BOT.symbol =>
-            nearestEnemySlave = Some(cellRelPos)
             -100 / stepDistance
 
           case Cell.WITH_MY_MINI_BOT.symbol =>
@@ -170,7 +163,8 @@ object ControlFunction {
         directionValue(direction45) += value
       }
     }
-    (directionValue, nearestEnemyMaster, nearestEnemySlave)
+
+    directionValue
   }
 }
 
@@ -254,7 +248,7 @@ case class BotImpl(inputParams: Map[String, String]) extends MiniBot {
   /** Renders commands and stateParams into a control function return string. */
   override def toString = {
     var result = commands
-    if(!stateParams.isEmpty) {
+    if(stateParams.nonEmpty) {
       if(!result.isEmpty) result += "|"
       result += stateParams.map(e => e._1 + "=" + e._2).mkString("Set(",",",")")
     }
