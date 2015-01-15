@@ -170,7 +170,7 @@ class MasterBot extends Bot{
 class ControlFunctionFactory {
 
   def create = (input: String) => {
-    CommandParser(input) match {
+    CommandFromServer(input) match {
 
       case Some(command) =>
         val bot = BotFactory(command)
@@ -269,47 +269,6 @@ case class BotActionActionImpl(command: CommandFromServer) extends MiniBotAction
   def set(params: (String,Any)*) = { stateParams ++= params; this }
   def set(keyPrefix: String, xy: XY) = { stateParams ++= List(keyPrefix+"x" -> xy.x, keyPrefix+"y" -> xy.y); this }
 }
-
-
-
-
-/** Utility methods for parsing strings containing a single command of the format
-  * "Command(key=value,key=value,...)"
-  *
-  * It parses only React command.
-  */
-object CommandParser {
-
-  def apply(command: String): Option[CommandFromServer] = {
-    val segments = command.split('(')
-
-    if (segments.length != 2) throw new IllegalStateException("invalid command: " + command)
-
-    if (segments(0) != "React") return Option.empty
-
-    def splitParam(param: String) = {
-      val segments = param.split('=')
-      if (segments.length != 2)
-        throw new IllegalStateException("invalid key/value pair: " + param)
-      (segments(0), segments(1))
-    }
-
-    val params = segments(1).dropRight(1).split(',').map(splitParam).toMap
-
-
-    Option(new CommandFromServer(
-      params("generation").toInt,
-      params("name"),
-      params("time").toInt,
-      params("view"),
-      params("energy").toInt,
-      params get "master",
-      params get "collision",
-      params get "lastDirection"))
-  }
-}
-
-
 
 
 /** Utility class for managing 2D cell coordinates.
@@ -529,4 +488,37 @@ class CommandFromServer(val generation: Int,
 
   def isForMasterBot: Boolean = generation == 0
 }
+
+
+object CommandFromServer {
+
+  def apply(command: String): Option[CommandFromServer] = {
+    val segments = command.split('(')
+
+    if (segments.length != 2) throw new IllegalStateException("invalid command: " + command)
+
+    if (segments(0) != "React") return Option.empty
+
+    def splitParam(param: String) = {
+      val segments = param.split('=')
+      if (segments.length != 2)
+        throw new IllegalStateException("invalid key/value pair: " + param)
+      (segments(0), segments(1))
+    }
+
+    val params = segments(1).dropRight(1).split(',').map(splitParam).toMap
+
+
+    Option(new CommandFromServer(
+      params("generation").toInt,
+      params("name"),
+      params("time").toInt,
+      params("view"),
+      params("energy").toInt,
+      params get "master",
+      params get "collision",
+      params get "lastDirection"))
+  }
+}
+
 
